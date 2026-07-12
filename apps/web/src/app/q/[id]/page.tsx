@@ -18,6 +18,7 @@ import { StackedSortControls, type StackedItem } from '@/components/StackedSortC
 import { ScrapeStatusDot } from '@/components/ScrapeStatusDot';
 import { ForceScrapeButton } from '@/components/ForceScrapeButton';
 import { TrackerFilters } from '@/components/TrackerFilters';
+import { WhatsAppNumbers } from '@/components/WhatsAppNumbers';
 import { aggregateScrapeStatus } from '@/lib/scrape-status';
 import { canManageQueryWithoutToken } from '@/lib/query-auth';
 import { filterSnapshotsByTrackerFilters } from '@/lib/snapshot-filters';
@@ -472,6 +473,8 @@ export default async function ChartPage({ params }: Props) {
       ) : (
         renderRouteBlock(primary, false, t)
       )}
+
+      {!expired && <WhatsAppNumbers queryId={id} canEdit={canEdit} />}
 
       <div className={styles.footerMeta}>
         <div className={styles.footerRow}>
