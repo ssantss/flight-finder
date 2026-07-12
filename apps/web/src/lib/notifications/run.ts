@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { detectNewLow } from './detect';
 import { formatNewLowMessage } from './format';
 import { dispatchNotifications } from './notify';
+import { sendWhatsAppAlert } from './whatsapp-alert';
 
 /**
  * Base URL for deep links in notifications. Precedence: admin-configured
@@ -69,12 +70,13 @@ export async function notifyNewLows(queryIds: string[], cycleStartedAt: Date): P
         baseUrl,
       });
       const outcomes = await dispatchNotifications(query.userId, message);
+      const whatsappSent = await sendWhatsAppAlert(message);
 
       // Only advance the dedupe marker once at least one channel actually
       // delivered. A transient failure on every channel must not consume the
       // low and suppress the retry next cycle; and with no channels at all we
       // leave it untouched so alerts start the moment one is configured.
-      if (outcomes.some((o) => o.ok)) {
+      if (outcomes.some((o) => o.ok) || whatsappSent === true) {
         await prisma.query.update({
           where: { id: query.id },
           data: { lastNotifiedLowPrice: alert.currentMin, lastNotifiedAt: new Date() },
@@ -82,9 +84,10 @@ export async function notifyNewLows(queryIds: string[], cycleStartedAt: Date): P
       }
 
       const sent = outcomes.filter((o) => o.ok).length;
+      const whatsapp = whatsappSent === null ? 'off' : whatsappSent ? 'sent' : 'failed';
       console.log(
         `[notify] query=${query.id} new low ${alert.currentMin} (was ${alert.baseline}) ` +
-          `channels=${outcomes.length} sent=${sent} failed=${outcomes.length - sent}`,
+          `channels=${outcomes.length} sent=${sent} failed=${outcomes.length - sent} whatsapp=${whatsapp}`,
       );
       for (const o of outcomes.filter((o) => !o.ok)) {
         console.error(`[notify] query=${query.id} channel=${o.channelId} type=${o.type} failed: ${o.error}`);
