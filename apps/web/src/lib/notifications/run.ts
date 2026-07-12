@@ -70,7 +70,7 @@ export async function notifyNewLows(queryIds: string[], cycleStartedAt: Date): P
         baseUrl,
       });
       const outcomes = await dispatchNotifications(query.userId, message);
-      const whatsappSent = await sendWhatsAppAlert(message);
+      const whatsappSent = await sendWhatsAppAlert(query.id, message);
 
       // Only advance the dedupe marker once at least one channel actually
       // delivered. A transient failure on every channel must not consume the

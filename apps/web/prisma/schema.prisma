@@ -45,6 +45,7 @@ model Query {
   snapshots PriceSnapshot[]
   fetchRuns FetchRun[]
   editEvents QueryEditEvent[]
+  whatsappAlerts WhatsAppAlert[]
   user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([active])
@@ -66,6 +67,19 @@ model QueryEditEvent {
 
   @@index([queryId, editedAt])
   @@index([userId])
+}
+
+model WhatsAppAlert {
+  id        String   @id @default(cuid())
+  queryId   String
+  phone     String
+  label     String?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+
+  @@index([queryId])
 }
 
 model PriceSnapshot {
