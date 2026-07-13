@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-const { mockFindFirst } = vi.hoisted(() => ({
+const { mockFindFirst, mockRunScrapeAll, mockCleanup, mockExpire, mockNotify } = vi.hoisted(() => ({
   mockFindFirst: vi.fn(),
+  mockRunScrapeAll: vi.fn(),
+  mockCleanup: vi.fn(),
+  mockExpire: vi.fn(),
+  mockNotify: vi.fn(),
 }));
 
 vi.mock('./prisma', () => ({
@@ -12,12 +16,29 @@ vi.mock('./prisma', () => ({
   },
 }));
 
+vi.mock('./scraper/run-scrape', () => ({
+  runScrapeAll: (...args: unknown[]) => mockRunScrapeAll(...args),
+  cleanupUnvisitedQueries: (...args: unknown[]) => mockCleanup(...args),
+}));
+
+vi.mock('./scraper/expire-queries', () => ({
+  expireDepartedQueries: (...args: unknown[]) => mockExpire(...args),
+}));
+
+vi.mock('./notifications/run', () => ({
+  notifyNewLows: (...args: unknown[]) => mockNotify(...args),
+}));
+
 import { startCron, stopCron, getCronInfo, updateCronInterval } from './cron';
 
 afterEach(() => {
   stopCron();
   vi.useRealTimers();
   mockFindFirst.mockReset();
+  mockRunScrapeAll.mockReset();
+  mockCleanup.mockReset();
+  mockExpire.mockReset();
+  mockNotify.mockReset();
   delete process.env.CRON_INTERVAL_HOURS;
   delete process.env.CRON_ENABLED;
 });
@@ -88,6 +109,57 @@ describe('updateCronInterval', () => {
 
     updateCronInterval(48);
     expect(getCronInfo().intervalHours).toBe(24);
+  });
+});
+
+describe('cron fires new-low notifications', () => {
+  it('calls notifyNewLows with the successful query ids after a scheduled scrape', async () => {
+    vi.useFakeTimers();
+    mockFindFirst.mockResolvedValue({ id: 'singleton', scrapeInterval: 1 });
+    mockCleanup.mockResolvedValue(0);
+    mockExpire.mockResolvedValue(0);
+    mockRunScrapeAll.mockResolvedValue([
+      { queryId: 'q1', status: 'success', snapshotsCount: 7 },
+      { queryId: 'q2', status: 'failed', snapshotsCount: 0 },
+    ]);
+    mockNotify.mockResolvedValue(undefined);
+
+    await startCron();
+    await vi.advanceTimersByTimeAsync(3600 * 1000 + 151 * 1000);
+
+    expect(mockRunScrapeAll).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledWith(['q1'], expect.any(Date));
+  });
+
+  it('captures the cycle boundary before scraping so fresh snapshots count as current', async () => {
+    vi.useFakeTimers();
+    mockFindFirst.mockResolvedValue({ id: 'singleton', scrapeInterval: 1 });
+    mockCleanup.mockResolvedValue(0);
+    mockExpire.mockResolvedValue(0);
+    mockRunScrapeAll.mockResolvedValue([{ queryId: 'q1', status: 'success', snapshotsCount: 1 }]);
+    mockNotify.mockResolvedValue(undefined);
+
+    const before = new Date();
+    await startCron();
+    await vi.advanceTimersByTimeAsync(3600 * 1000 + 151 * 1000);
+
+    const passed = mockNotify.mock.calls[0][1] as Date;
+    expect(passed.getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
+
+  it('does not throw the cron run when notifyNewLows rejects', async () => {
+    vi.useFakeTimers();
+    mockFindFirst.mockResolvedValue({ id: 'singleton', scrapeInterval: 1 });
+    mockCleanup.mockResolvedValue(0);
+    mockExpire.mockResolvedValue(0);
+    mockRunScrapeAll.mockResolvedValue([{ queryId: 'q1', status: 'success', snapshotsCount: 1 }]);
+    mockNotify.mockRejectedValue(new Error('whatsapp down'));
+
+    await startCron();
+    await vi.advanceTimersByTimeAsync(3600 * 1000 + 151 * 1000);
+
+    expect(getCronInfo().nextScrape).not.toBeNull();
   });
 });
 

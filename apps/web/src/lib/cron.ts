@@ -53,9 +53,12 @@ async function runAndReschedule() {
   try {
     const { runScrapeAll, cleanupUnvisitedQueries } = await import('./scraper/run-scrape');
     const { expireDepartedQueries } = await import('./scraper/expire-queries');
+    const { notifyNewLows } = await import('./notifications/run');
 
     await cleanupUnvisitedQueries();
     const expired = await expireDepartedQueries();
+
+    const cycleStartedAt = new Date();
     const results = await runScrapeAll();
     lastScrapeAt = new Date();
 
@@ -63,6 +66,13 @@ async function runAndReschedule() {
     const failed = results.filter((r) => r.status === 'failed').length;
     const snapshots = results.reduce((sum, r) => sum + r.snapshotsCount, 0);
     console.log(`[cron] Scrape complete: ${successful} ok, ${failed} failed, ${snapshots} snapshots, ${expired} expired`);
+
+    try {
+      const successfulQueryIds = results.filter((r) => r.status === 'success').map((r) => r.queryId);
+      await notifyNewLows(successfulQueryIds, cycleStartedAt);
+    } catch (err) {
+      console.error(`[cron] notification pass failed: ${err instanceof Error ? err.message : err}`);
+    }
   } catch (err) {
     console.error('[cron] Scrape failed:', err instanceof Error ? err.message : err);
   }
